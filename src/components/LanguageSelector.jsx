@@ -15,7 +15,7 @@ export default function LanguageSelector({ onSelect }) {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,var(--tw-gradient-stops))] from-gray-900 via-[#0a0a0c] to-[#0a0a0c]"></div>
 
       <div className="relative p-8 rounded-3xl border border-white/10 bg-[#121212] backdrop-blur-xl shadow-2xl w-96 text-center">
-        
+
         <div className="flex justify-center mb-6">
           <div className="p-3 bg-blue-500/10 rounded-full border border-blue-500/20">
             <Languages className="text-blue-400" size={32} />
