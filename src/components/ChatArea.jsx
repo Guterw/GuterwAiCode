@@ -55,7 +55,8 @@ export default function ChatArea() {
   if (!currentChat) return null;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0a0a0c] text-gray-200">
+    <div className="flex-1 flex items-center justify-center bg-[#0a0a0c] text-blue-400">
+      <Loader2 className="animate-spin" size={32} />
       {/* Header com título e modelo */}
       <header className="p-4 border-b border-white/5 flex items-center justify-between">
         <h2 className="font-medium text-blue-400">{currentChat.title}</h2>

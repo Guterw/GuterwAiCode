@@ -17,16 +17,10 @@ function App() {
       <div className="flex h-screen flex-col bg-[#0a0a0c]"> {/* Cor de fundo consistente */}
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
-          <main className="flex-1 flex flex-col">
+          <main className="flex-1 flex flex-col h-screen overflow-hidden">
             <Routes>
               <Route path="/" element={<WelcomeScreen />} />
-              {/* Opção 1: Se quiser uma tela de boas-vindas */}
-              <Route path="/" element={<div className="flex items-center justify-center h-full text-gray-500">Selecione um chat ou crie um novo</div>} />
-              
-              {/* Rota do Chat */}
               <Route path="/chat/:id" element={<ChatArea />} />
-              
-              {/* Redirecionamento de segurança */}
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
           </main>
