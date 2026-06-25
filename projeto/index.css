@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* Ajuste básico para o app ocupar a tela toda */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background-color: #f3f4f6;
+}

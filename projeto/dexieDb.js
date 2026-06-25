@@ -11,26 +11,11 @@ db.version(1).stores({
 
 // 3. Funções auxiliares para a interface
 export const dbOperations = {
+  // Exposto para permitir queries reativas diretas (ex: useLiveQuery(() => dbOperations.db.chats.get(id)))
   db,
 
   createNewChat: async (modelName = 'Owl Alpha') => {
-    // Busca todos os chats e encontra os IDs existentes
-    const allChats = await db.chats.toArray();
-    const existingIds = allChats.map(c => c.id).sort((a, b) => a - b);
-    
-    // Lógica para encontrar o menor ID disponível (começando do 1)
-    let nextId = 1;
-    for (let id of existingIds) {
-      if (id === nextId) {
-        nextId++;
-      } else if (id > nextId) {
-        break; // Encontrou um "buraco" na numeração
-      }
-    }
-
-    // Força o Dexie a usar o nextId encontrado
     const chatId = await db.chats.add({
-      id: nextId, 
       title: 'Novo Chat',
       model: modelName,
       createdAt: new Date().toISOString(),
@@ -45,6 +30,7 @@ export const dbOperations = {
 
   deleteChat: async (chatId) => {
     await db.chats.delete(chatId);
+    // Também é boa prática deletar as mensagens vinculadas a esse chat
     await db.messages.where('chatId').equals(chatId).delete();
   },
 
@@ -65,6 +51,7 @@ export const dbOperations = {
     });
 
     await db.chats.update(chatId, { updatedAt: new Date().toISOString() });
+
     return messageId;
   },
 
