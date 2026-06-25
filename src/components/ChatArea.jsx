@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { dbOperations } from '../config/dexieDb';
 import { aiService } from '../services/AiService';
+import { useLanguage } from '../contexts/LanguageContext';
 import { Send, Loader2, Bot, User } from 'lucide-react';
 
 const MODEL_LABELS = {
@@ -13,6 +14,7 @@ const MODEL_LABELS = {
 export default function ChatArea() {
   const { id } = useParams();
   const chatId = Number(id);
+  const { lang } = useLanguage();
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
@@ -58,7 +60,7 @@ export default function ChatArea() {
       const history = (messages || []).map((m) => ({ role: m.role, content: m.content }));
       history.push({ role: 'user', content: userText });
 
-      const response = await aiService.sendMessage(history, currentChat.model);
+      const response = await aiService.sendMessage(history, currentChat.model, lang);
       await dbOperations.addMessage(chatId, 'assistant', response);
     } catch (error) {
       console.error(error);
@@ -92,7 +94,7 @@ export default function ChatArea() {
       {/* Header com título e modelo */}
       <header className="p-4 border-b border-white/5 flex items-center justify-between shrink-0">
         <h2 className="font-medium text-blue-400 truncate">{currentChat.title}</h2>
-        <span className="text-[10px] uppercase tracking-widest px-2 py-1 bg-white/5 rounded border border-white/10 shrink-0">
+        <span className="text-[10px] uppercase tracking-widest px-2 py-1 text-white rounded border border-blue-500 shrink-0">
           {MODEL_LABELS[currentChat.model] || currentChat.model}
         </span>
       </header>
@@ -128,7 +130,7 @@ export default function ChatArea() {
               </div>
             )}
             <div
-              className={`max-w-[70%] p-4 rounded-2xl whitespace-pre-wrap break-words ${
+              className={`max-w-[70%] p-4 rounded-2xl whitespace-pre-wrap wrap-break-word ${
                 msg.role === 'user'
                   ? 'bg-blue-600 text-white'
                   : 'bg-[#1a1a1a] border border-white/5 text-gray-200'
