@@ -117,7 +117,7 @@ export default function ChatArea() {
               className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest px-2 py-1 text-blue-300 rounded border border-blue-500/40 bg-blue-500/5"
             >
               <GithubIcon size={11} />
-              <span className="max-w-[120px] truncate normal-case tracking-normal">
+              <span className="max-w-30 truncate normal-case tracking-normal">
                 {githubRepo.repo.fullName}
               </span>
             </span>

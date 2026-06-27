@@ -41,7 +41,7 @@ export default function GitHubConnector({ align = 'right' }) {
       >
         <GithubIcon size={15} />
         {isConnected ? (
-          <span className="max-w-[140px] truncate">{repo.fullName}</span>
+          <span className="max-w-35 truncate">{repo.fullName}</span>
         ) : (
           <span>Conectar GitHub</span>
         )}
