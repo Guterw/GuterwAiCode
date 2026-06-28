@@ -5,7 +5,7 @@ export const db = new Dexie('AIChatDB');
 
 // 2. Define a estrutura das tabelas
 db.version(1).stores({
-  chats: '++id, title, model, updatedAt',
+  chats: '++id, title, model, updatedAt, repository, repositoryBranch, repositoryTree',
   messages: '++id, chatId, role, timestamp'
 });
 
@@ -39,8 +39,14 @@ export const dbOperations = {
     return chatId;
   },
 
-  updateChatInfo: async (chatId, title, model) => {
-    await db.chats.update(chatId, { title, model });
+  updateChatInfo: async (chatId, title, model, repoData = null) => {
+    const updateData = { title, model };
+    if (repoData) {
+      updateData.repository = repoData.fullName;      // "owner/repo"
+      updateData.repositoryBranch = repoData.branch;  // "main"
+      updateData.repositoryTree = repoData.tree;      // array de paths
+    }
+    await db.chats.update(chatId, updateData);
   },
 
   deleteChat: async (chatId) => {

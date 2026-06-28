@@ -167,14 +167,25 @@ export default function ChatArea() {
     await dbOperations.updateChatInfo(chatId, currentChat.title, modelName);
   };
 
-  const handleAttachRepository = async () => {
+ const handleAttachRepository = async () => {
     if (!currentChat || !githubRepo?.isConnected) return;
-    await dbOperations.db.chats.update(chatId, { repository: githubRepo.repo.fullName });
+    // Pega árvore do repo global AGORA e salva no chat
+    const { tree, branch } = await githubService.getFullTreeForRepo(
+      githubRepo.repo.owner, githubRepo.repo.repo, githubRepo.repo.branch
+    );
+    await dbOperations.updateChatInfo(chatId, currentChat.title, currentChat.model, {
+      fullName: githubRepo.repo.fullName,
+      branch,
+      tree: tree.map(t => t.path).sort() // salva só paths (leve)
+    });
+    // Atualiza currentChat local para feedback imediato
+    setCurrentChat(prev => prev ? { ...prev, repository: githubRepo.repo.fullName, repositoryBranch: branch, repositoryTree: tree.map(t => t.path).sort() } : null);
   };
 
-  const handleRemoveRepository = async () => {
+   const handleRemoveRepository = async () => {
     if (!currentChat) return;
-    await dbOperations.db.chats.update(chatId, { repository: null });
+    await dbOperations.updateChatInfo(chatId, currentChat.title, currentChat.model, null);
+    setCurrentChat(prev => prev ? { ...prev, repository: null, repositoryBranch: null, repositoryTree: null } : null);
   };
 
   const handleSendMessage = async (e) => {
@@ -182,27 +193,24 @@ export default function ChatArea() {
     if (!inputValue.trim() || isLoading || !currentChat) return;
 
     const userText = inputValue;
-    setInputValue('');
-    setIsLoading(true);
+    setInputValue(''); setIsLoading(true);
 
     try {
-      // Detecta se é a primeira mensagem real do chat (estado vazio + sem mais histórico)
-      const isFirstMessage = messages.length === 0 && offset === 0 && !hasMore;
+      const isFirstMessage = !messages || messages.length === 0;
       if (isFirstMessage) {
         const newTitle = userText.substring(0, 25) + (userText.length > 25 ? '...' : '');
         await dbOperations.updateChatInfo(chatId, newTitle, currentChat.model);
       }
-
       await dbOperations.addMessage(chatId, 'user', userText);
 
-      // ⚡️ MUDANÇA CHAVE: Busca TODAS as mensagens do banco para contexto da IA
-      // (ignora paginação do frontend)
+      // HISTÓRICO COMPLETO DO BANCO (não do estado paginado)
       const fullHistory = await dbOperations.getMessagesByChat(chatId);
       const history = fullHistory.map(m => ({ role: m.role, content: m.content }));
       history.push({ role: 'user', content: userText });
 
-      // Sua lógica de Repositório (INALTERADA)
+      // MONTA repoOptions: PRIORIDADE 1 = global conectado, 2 = fixado no chat
       let repoOptions = null;
+
       if (githubRepo?.isConnected) {
         repoOptions = {
           fullName: githubRepo.repo.fullName,
@@ -211,11 +219,20 @@ export default function ChatArea() {
           getFileContent: githubRepo.getFileContent,
         };
       } else if (currentChat.repository) {
+        // REPO FIXADO — usa funções standalone do GitHubService
+        const owner = currentChat.repository.split('/')[0];
+        const repoName = currentChat.repository.split('/')[1];
+        const branch = currentChat.repositoryBranch || 'main';
+        const treePaths = currentChat.repositoryTree || [];
+
         repoOptions = {
           fullName: currentChat.repository,
-          branch: githubRepo.repo.branch,
-          treeText: githubService.renderTreeAsText(githubRepo.tree),
-          getFileContent: githubRepo.getFileContent,
+          branch,
+          treeText: treePaths.join('\n'),
+          getFileContent: async (path) => {
+            const { content } = await githubService.getFileContentForRepo(owner, repoName, path, branch);
+            return content;
+          },
         };
       }
 
@@ -224,9 +241,7 @@ export default function ChatArea() {
     } catch (error) {
       console.error(error);
       await dbOperations.addMessage(chatId, 'assistant', 'Ocorreu um erro ao processar sua mensagem.');
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { setIsLoading(false); }
   };
 
   // --- LOADING / NOT FOUND (INALTERADO) ---
