@@ -3,6 +3,7 @@ import { PlusCircle, MessageSquare, Trash2, ChevronLeft, ChevronRight, BrainCirc
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { dbOperations } from '../config/dexieDb';
+import GitHubConnector from './GitHubConnector';
 
 const MODEL_SHORT_LABEL = {
   'Owl Alpha': 'OWL',
@@ -49,6 +50,12 @@ export default function Sidebar() {
           {isOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
         </button>
       </div>
+
+      {isOpen && (
+        <div className="px-4 mb-4">
+          <GitHubConnector />
+        </div>
+      )}
 
       <div className="px-4 mb-6">
         <button
