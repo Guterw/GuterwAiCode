@@ -71,4 +71,21 @@ export const dbOperations = {
   getMessagesByChat: async (chatId) => {
     return await db.messages.where('chatId').equals(chatId).sortBy('timestamp');
   },
+
+  // NOVO: busca paginada (mais recentes primeiro) para renderização leve
+  getMessagesPaginated: async (chatId, limit = 4, offset = 0) => {
+    // Dexie: orderBy('timestamp').reverse() = mais recentes primeiro
+    // offset = quantas pular, limit = quantas pegar
+    return await db.messages
+      .where('chatId')
+      .equals(chatId)
+      .reverse()
+      .sortBy('timestamp')
+      .then(all => all.slice(offset, offset + limit));
+  },
+
+  // NOVO: conta total de mensagens do chat (para saber se tem mais)
+  countMessagesByChat: async (chatId) => {
+    return await db.messages.where('chatId').equals(chatId).count();
+  },
 };

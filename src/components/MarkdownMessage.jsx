@@ -1,11 +1,15 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+const SyntaxHighlighter = React.lazy(() => 
+  import('react-syntax-highlighter').then(m => ({ default: m.Prism }))
+);
 // Você pode escolher outros temas importando de 'react-syntax-highlighter/dist/esm/styles/prism'
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
+const vscDarkPlus = React.lazy(() => 
+  import('react-syntax-highlighter/dist/esm/styles/prism').then(m => ({ default: m.vscDarkPlus }))
+);
 
-function MarkdownMessage({ content }) {
+const MarkdownMessage = React.memo(function MarkdownMessage({ content }) {
   return (
     <div className="text-gray-200">
       <ReactMarkdown
@@ -81,4 +85,4 @@ function MarkdownMessage({ content }) {
       </ReactMarkdown>
     </div>
   );
-}
+})

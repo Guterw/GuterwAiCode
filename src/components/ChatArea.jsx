@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { dbOperations } from '../config/dexieDb';
@@ -6,21 +6,21 @@ import { aiService } from '../services/AiService';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useGitHubRepo } from '../contexts/GitHubRepoContext';
 import { githubService } from '../services/GitHubService';
-import { Send, Loader2, Bot, User, Paperclip, X } from 'lucide-react'; // Adicionei ícones novos aqui
+import { Send, Loader2, Bot, User, Paperclip, X, ChevronUp } from 'lucide-react';
 import GithubIcon from './icons/GithubIcon';
-
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ChatInput from './ChatInput';
 
 const MODEL_LABELS = {
   'Owl Alpha': 'OWL-Gemma-2',
   'Nemotron 3 Ultra': 'NVIDIA-Nemotron',
 };
 
-// Componente de Interpretação da IA (Com os espaçamentos mb-5 e whitespace-pre-wrap corrigidos)
-function MarkdownMessage({ content }) {
+// Componente de Interpretação da IA (inalterado)
+const MarkdownMessage = React.memo(function MarkdownMessage({ content }) {
   return (
     <div className="text-gray-200">
       <ReactMarkdown
@@ -82,39 +82,93 @@ function MarkdownMessage({ content }) {
       </ReactMarkdown>
     </div>
   );
-}
+})
+
+const PAGE_SIZE = 3; // Mensagens por página (renderização)
 
 export default function ChatArea() {
   const { id } = useParams();
   const chatId = Number(id);
   const { lang } = useLanguage();
   const githubRepo = useGitHubRepo();
+
+  // --- ESTADOS ---
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const messagesEndRef = useRef(null);
+  const loadMoreRef = useRef(null);
 
+  // --- QUERIES DEXIE ---
+  // Chat atual (reativo)
   const currentChat = useLiveQuery(
     async () => (await dbOperations.db.chats.get(chatId)) ?? null,
     [chatId]
   );
-  const messages = useLiveQuery(
-    () => dbOperations.getMessagesByChat(chatId),
+
+  // Total de mensagens (reativo, leve - só conta)
+  const totalMessages = useLiveQuery(
+    () => dbOperations.countMessagesByChat(chatId),
     [chatId]
   );
 
+  // Mensagens renderizadas (estado local paginado)
+  const [messages, setMessages] = useState([]);
+
+  // --- EFEITOS DE PAGINAÇÃO ---
+  // Carrega primeira página (mais recentes) quando o chat muda
+  useEffect(() => {
+    if (currentChat === undefined || currentChat === null) return;
+    setOffset(0);
+    setMessages([]);
+    loadInitialPage();
+  }, [currentChat]);
+
+  const loadInitialPage = useCallback(async () => {
+    const page = await dbOperations.getMessagesPaginated(chatId, PAGE_SIZE, 0);
+    setMessages(page.reverse()); // Inverte para ordem cronológica (antiga -> nova)
+    setOffset(PAGE_SIZE);
+    setHasMore(page.length === PAGE_SIZE);
+  }, [chatId]);
+
+  // Carrega mensagens mais antigas (botão "Carregar mais")
+  const loadMore = useCallback(async () => {
+    if (loadingHistory || !hasMore) return;
+    setLoadingHistory(true);
+    try {
+      const page = await dbOperations.getMessagesPaginated(chatId, PAGE_SIZE, offset);
+      if (page.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      // Prepend: mensagens mais antigas vão para o INÍCIO do array
+      setMessages(prev => [...page.reverse(), ...prev]);
+      setOffset(prev => prev + page.length);
+      setHasMore(page.length === PAGE_SIZE);
+      // Mantém scroll posicionado no botão "carregar mais"
+      requestAnimationFrame(() => {
+        loadMoreRef.current?.scrollIntoView({ behavior: 'auto' });
+      });
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [chatId, offset, loadingHistory, hasMore]);
+
+  // Auto-scroll para novas respostas da IA
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
+  // --- HANDLERS EXISTENTES (MANTIDOS) ---
   const handleSelectModel = async (modelName) => {
     if (!currentChat) return;
     await dbOperations.updateChatInfo(chatId, currentChat.title, modelName);
   };
 
-  // --- NOVAS FUNÇÕES: Fixar e Remover Repositório do Chat ---
   const handleAttachRepository = async () => {
     if (!currentChat || !githubRepo?.isConnected) return;
-    // Atualiza diretamente no Dexie adicionando a propriedade 'repository'
     await dbOperations.db.chats.update(chatId, { repository: githubRepo.repo.fullName });
   };
 
@@ -122,7 +176,6 @@ export default function ChatArea() {
     if (!currentChat) return;
     await dbOperations.db.chats.update(chatId, { repository: null });
   };
-  // ------------------------------------------------------------
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -133,7 +186,8 @@ export default function ChatArea() {
     setIsLoading(true);
 
     try {
-      const isFirstMessage = !messages || messages.length === 0;
+      // Detecta se é a primeira mensagem real do chat (estado vazio + sem mais histórico)
+      const isFirstMessage = messages.length === 0 && offset === 0 && !hasMore;
       if (isFirstMessage) {
         const newTitle = userText.substring(0, 25) + (userText.length > 25 ? '...' : '');
         await dbOperations.updateChatInfo(chatId, newTitle, currentChat.model);
@@ -141,15 +195,15 @@ export default function ChatArea() {
 
       await dbOperations.addMessage(chatId, 'user', userText);
 
-      const history = (messages || []).map((m) => ({ role: m.role, content: m.content }));
+      // ⚡️ MUDANÇA CHAVE: Busca TODAS as mensagens do banco para contexto da IA
+      // (ignora paginação do frontend)
+      const fullHistory = await dbOperations.getMessagesByChat(chatId);
+      const history = fullHistory.map(m => ({ role: m.role, content: m.content }));
       history.push({ role: 'user', content: userText });
 
-      // AGORA A IA SÓ RECEBE O REPOSITÓRIO SE ELE ESTIVER FIXADO NESTE CHAT ESPECÍFICO
-      // E se o repositório atual conectado bater com o fixado (para poder ler os arquivos)
+      // Sua lógica de Repositório (INALTERADA)
       let repoOptions = null;
-      
       if (githubRepo?.isConnected) {
-        // PRIORIDADE 1: Repo conectado globalmente
         repoOptions = {
           fullName: githubRepo.repo.fullName,
           branch: githubRepo.repo.branch,
@@ -162,8 +216,6 @@ export default function ChatArea() {
           branch: githubRepo.repo.branch,
           treeText: githubService.renderTreeAsText(githubRepo.tree),
           getFileContent: githubRepo.getFileContent,
-          // Se precisar buscar arquivos, a função getFileContent deve ser tratada
-          // para suportar a busca baseada apenas no fullName.
         };
       }
 
@@ -177,6 +229,7 @@ export default function ChatArea() {
     }
   };
 
+  // --- LOADING / NOT FOUND (INALTERADO) ---
   if (currentChat === undefined) {
     return (
       <div className="h-full flex items-center justify-center bg-[#0a0a0c] text-blue-400">
@@ -193,16 +246,15 @@ export default function ChatArea() {
     );
   }
 
+  // --- RENDER ---
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0a0a0c]">
       <header className="p-4 border-b border-white/5 flex items-center justify-between shrink-0 gap-3">
         <h2 className="font-medium text-blue-400 truncate">{currentChat.title}</h2>
-        
+
         <div className="flex items-center gap-3 shrink-0">
-          
-          {/* LÓGICA VISUAL DO REPOSITÓRIO FIXADO NO HEADER */}
+          {/* Lógica visual do Repositório Fixado (INALTERADA) */}
           {currentChat.repository ? (
-            // Se tem repositório fixo, mostra o badge com opção de remover
             <div className="flex items-center gap-0 overflow-hidden rounded border border-blue-500/40 bg-blue-500/5">
               <span
                 title={`Repositório fixado nesta conversa: ${currentChat.repository}`}
@@ -213,7 +265,7 @@ export default function ChatArea() {
                   {currentChat.repository}
                 </span>
               </span>
-              <button 
+              <button
                 onClick={handleRemoveRepository}
                 className="px-1.5 py-1 text-blue-400 hover:bg-blue-500/20 hover:text-red-400 transition-colors border-l border-blue-500/20"
                 title="Desvincular repositório"
@@ -222,9 +274,8 @@ export default function ChatArea() {
               </button>
             </div>
           ) : (
-            // Se NÃO tem repositório fixo, mas tem um global conectado, oferece para fixar
             githubRepo?.isConnected && (
-              <button 
+              <button
                 onClick={handleAttachRepository}
                 className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest px-2 py-1 text-gray-400 hover:text-blue-300 rounded border border-gray-700 hover:border-blue-500/40 transition-colors"
                 title="Fixar este repositório para ser usado apenas nesta conversa"
@@ -242,6 +293,24 @@ export default function ChatArea() {
       </header>
 
       <div className="flex-1 p-6 overflow-y-auto space-y-6">
+        {/* BOTÃO CARREGAR MAIS (NOVO - TOPO DA LISTA) */}
+        {hasMore && (
+          <div ref={loadMoreRef} className="flex justify-center pt-2">
+            <button
+              onClick={loadMore}
+              disabled={loadingHistory}
+              className="px-4 py-2 text-xs text-gray-400 hover:text-white border border-white/10 rounded-full transition-colors disabled:opacity-50"
+            >
+              {loadingHistory ? (
+                <> <Loader2 className="animate-spin inline mr-1" size={12} /> Carregando...</>
+              ) : (
+                <> <ChevronUp className="inline mr-1" size={12} /> Carregar mensagens anteriores</>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* TELA VAZIA / ESCOLHA DE MODELO (INALTERADA) */}
         {(!messages || messages.length === 0) && (
           <div className="flex flex-col items-center justify-center h-full gap-4">
             <h3 className="text-xl font-light text-gray-400 mb-4">Escolha seu motor:</h3>
@@ -260,8 +329,7 @@ export default function ChatArea() {
                 </button>
               ))}
             </div>
-            
-            {/* Dica para o usuário fixar o repositório se ele estiver criando a conversa agora */}
+
             {githubRepo?.isConnected && !currentChat.repository && (
               <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-2">
                 Dica: Clique em "Fixar {githubRepo.repo.fullName.split('/')[1]}" no topo para atrelar os arquivos a este chat.
@@ -270,6 +338,7 @@ export default function ChatArea() {
           </div>
         )}
 
+        {/* LISTA DE MENSAGENS PAGINADA (USA STATE `messages` LOCAL) */}
         {messages?.map((msg) => (
           <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {msg.role !== 'user' && (
@@ -277,12 +346,12 @@ export default function ChatArea() {
                 <Bot size={16} className="text-purple-400" />
               </div>
             )}
-            
+
             <div
               className={`max-w-[80%] md:max-w-[70%] p-4 rounded-2xl wrap-break-word ${
                 msg.role === 'user'
-                  ? 'bg-blue-600 text-white whitespace-pre-wrap' 
-                  : 'bg-[#1a1a1a] border border-white/5' 
+                  ? 'bg-blue-600 text-white whitespace-pre-wrap'
+                  : 'bg-[#1a1a1a] border border-white/5'
               }`}
             >
               {msg.role === 'user' ? (
@@ -300,6 +369,7 @@ export default function ChatArea() {
           </div>
         ))}
 
+        {/* LOADING IA PENSANDO (INALTERADO) */}
         {isLoading && (
           <div className="flex items-center gap-2 text-blue-500 text-sm pl-11">
             <Loader2 className="animate-spin" size={14} />
@@ -309,23 +379,14 @@ export default function ChatArea() {
         <div ref={messagesEndRef} />
       </div>
 
-      <form onSubmit={handleSendMessage} className="p-4 border-t border-white/5 bg-[#0a0a0c] shrink-0">
-        <div className="flex gap-2 max-w-4xl mx-auto">
-          <input
-            className="flex-1 bg-[#1a1a1a] border border-white/10 p-4 rounded-xl focus:outline-none focus:border-blue-500 text-gray-100"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Digite algo..."
-          />
-          <button
-            type="submit"
-            disabled={isLoading || !inputValue.trim()}
-            className="p-4 bg-blue-600 rounded-xl hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Send size={20} />
-          </button>
-        </div>
-      </form>
+      {/* INPUT (INALTERADO) */}
+      <ChatInput
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onSubmit={handleSendMessage}
+        disabled={isLoading}
+        placeholder="Digite algo..."
+      />
     </div>
   );
 }
